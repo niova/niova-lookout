@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"unsafe"
 
 	"github.com/google/uuid"
@@ -31,11 +32,22 @@ struct nisd_config
 import "C"
 
 type Nisd struct {
-	uuid       uuid.UUID
-	EPInfo     CtlIfOut
-	membership map[string]bool
-	fromGossip bool
-	address    string // IP address of the NISD instance
+	uuid        uuid.UUID
+	EPInfo      CtlIfOut
+	membership  map[string]bool
+	fromGossip  bool
+	address     string // IP address of the NISD instance
+	ssdMutex    sync.Mutex
+	ssdStats    SSDStats
+	ssdStatsSet bool
+}
+
+// SSDStats holds the backing NVMe device's Identify-Namespace capacity
+// (ncap) and utilization (nuse), in logical blocks, as periodically polled
+// by pkg/monitor's ssd stats goroutine.
+type SSDStats struct {
+	NCap uint64 `type:"gauge" metric:"nisd_ssd_ncap_blocks"`
+	NUse uint64 `type:"gauge" metric:"nisd_ssd_nuse_blocks"`
 }
 
 type NiorqMgr struct {
@@ -353,6 +365,32 @@ func (n *Nisd) GetAltName() string {
 	return n.EPInfo.NISDRootEntry[0].AltName
 }
 
+// GetDevPath returns the backing block device path reported by the NISD's
+// ctl-interface, or "" if not yet known.
+func (n *Nisd) GetDevPath() string {
+	if len(n.EPInfo.NiorqMgr) == 0 {
+		return ""
+	}
+	return n.EPInfo.NiorqMgr[0].DevPath
+}
+
+// SetSSDStats records the latest polled NVMe capacity/utilization for this
+// NISD's backing device. Safe for concurrent use with GetSSDStats.
+func (n *Nisd) SetSSDStats(ncap, nuse uint64) {
+	n.ssdMutex.Lock()
+	defer n.ssdMutex.Unlock()
+	n.ssdStats = SSDStats{NCap: ncap, NUse: nuse}
+	n.ssdStatsSet = true
+}
+
+// GetSSDStats returns the last polled NVMe capacity/utilization and whether
+// a successful poll has ever occurred.
+func (n *Nisd) GetSSDStats() (SSDStats, bool) {
+	n.ssdMutex.Lock()
+	defer n.ssdMutex.Unlock()
+	return n.ssdStats, n.ssdStatsSet
+}
+
 func (n *Nisd) Parse(labels map[string]string, w http.ResponseWriter,
 	r *http.Request) {
 	var out string
@@ -375,6 +413,14 @@ func (n *Nisd) Parse(labels map[string]string, w http.ResponseWriter,
 			labels)
 		if n.EPInfo.SysInfo != nil {
 			out += ph.GenericPromDataParser(*n.EPInfo.SysInfo, labels)
+		}
+
+		// Emit the NVMe capacity/utilization gauges once the ssd
+		// stats poller has completed at least one successful fetch.
+		if stats, ok := n.GetSSDStats(); ok {
+			labels["DEV_PATH"] = n.GetDevPath()
+			out += ph.GenericPromDataParser(stats, labels)
+			delete(labels, "DEV_PATH")
 		}
 
 		// Iterate and parse each NISDChunk if populated

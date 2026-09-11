@@ -415,6 +415,8 @@ func (h *LookoutHandler) Start() error {
 
 	go h.monitorLsof()
 
+	go h.monitorSSDStats()
+
 	// Start monitoring
 	if err = h.monitor(); err != nil {
 		xlog.Error("h.monitor(): ", err)
