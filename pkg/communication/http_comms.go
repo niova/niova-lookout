@@ -221,6 +221,8 @@ func (h *CommHandler) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	for devPath, entry := range h.Epc.DeviceSSDStatsSnapshot() {
 		labels := map[string]string{
 			"DEV_PATH":  devPath,
+			"NODE_NAME": entry.NodeName,
+			"TYPE":      "NISD",
 			"NISD_UUID": strings.Join(entry.NisdUUIDs, ","),
 		}
 		fmt.Fprint(w, ph.GenericPromDataParser(entry.Stats, labels))

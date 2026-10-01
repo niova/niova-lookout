@@ -3,7 +3,10 @@ package monitor
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -18,6 +21,30 @@ const ssdStatsSleepTime = 60 * time.Second
 type DeviceSSDStats struct {
 	Stats     applications.SSDStats
 	NisdUUIDs []string
+	NodeName  string
+}
+
+var partSuffixRe = regexp.MustCompile(`^(/dev/(?:nvme\d+n\d+|mmcblk\d+))p\d+$|^(/dev/(?:sd|vd|xvd)[a-z]+)\d+$`)
+
+// baseDevPath maps a partition path (e.g. /dev/nvme2n1p3) to its parent
+// whole-disk path (/dev/nvme2n1). It consults sysfs first and falls back to
+// name matching. Non-partition paths are returned unchanged.
+func baseDevPath(devPath string) string {
+	name := filepath.Base(devPath)
+	sysPath := filepath.Join("/sys/class/block", name)
+	if _, err := os.Stat(filepath.Join(sysPath, "partition")); err == nil {
+		if real, err := filepath.EvalSymlinks(sysPath); err == nil {
+			return "/dev/" + filepath.Base(filepath.Dir(real))
+		}
+	}
+
+	if m := partSuffixRe.FindStringSubmatch(devPath); m != nil {
+		if m[1] != "" {
+			return m[1]
+		}
+		return m[2]
+	}
+	return devPath
 }
 
 // nvmeIdNsOutput mirrors the fields of interest from `nvme id-ns -o json`.
@@ -54,6 +81,7 @@ func fetchNVMeCapUse(devPath string) (ncap uint64, nuse uint64, err error) {
 // nvme-cli invocations when multiple NISDs share the same physical device.
 func (h *LookoutHandler) pollSSDStats() {
 	devNisds := make(map[string][]string)
+	devNodes := make(map[string]string)
 
 	for _, ep := range h.Epc.TakeSnapshot() {
 		if ep.State != EPstateRunning {
@@ -69,7 +97,11 @@ func (h *LookoutHandler) pollSSDStats() {
 		if devPath == "" {
 			continue
 		}
+		devPath = baseDevPath(devPath)
 
+		if devNodes[devPath] == "" && nisd.EPInfo.SysInfo != nil {
+			devNodes[devPath] = nisd.EPInfo.SysInfo.UtsNodename
+		}
 		devNisds[devPath] = append(devNisds[devPath], nisd.GetUUID().String())
 	}
 
@@ -84,6 +116,7 @@ func (h *LookoutHandler) pollSSDStats() {
 		h.Epc.SetDeviceSSDStats(devPath, DeviceSSDStats{
 			Stats:     applications.SSDStats{NCap: ncap, NUse: nuse},
 			NisdUUIDs: nisdUUIDs,
+			NodeName:  devNodes[devPath],
 		})
 	}
 }
