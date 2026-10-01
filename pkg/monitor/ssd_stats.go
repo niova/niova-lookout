@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"time"
 
 	"github.com/00pauln00/niova-lookout/pkg/monitor/applications"
@@ -11,6 +12,13 @@ import (
 )
 
 const ssdStatsSleepTime = 60 * time.Second
+
+// DeviceSSDStats pairs a device's polled NVMe capacity/utilization with the
+// UUIDs of the NISDs currently reporting that device as their backing store.
+type DeviceSSDStats struct {
+	Stats     applications.SSDStats
+	NisdUUIDs []string
+}
 
 // nvmeIdNsOutput mirrors the fields of interest from `nvme id-ns -o json`.
 // "ncap" (Namespace Capacity) and "nuse" (Namespace Utilization) are NVMe
@@ -39,10 +47,14 @@ func fetchNVMeCapUse(devPath string) (ncap uint64, nuse uint64, err error) {
 	return parsed.NCap, parsed.NUse, nil
 }
 
-// pollSSDStats fetches NVMe capacity/utilization for every currently
-// running NISD's backing device and caches the result on its Nisd app
-// instance for the next Prometheus scrape.
+// pollSSDStats groups currently running NISDs by their backing device path
+// (as reported via each NISD's ctl-interface), then fetches NVMe
+// capacity/utilization exactly once per unique device, caching the result
+// on the EPContainer for the next Prometheus scrape. This avoids redundant
+// nvme-cli invocations when multiple NISDs share the same physical device.
 func (h *LookoutHandler) pollSSDStats() {
+	devNisds := make(map[string][]string)
+
 	for _, ep := range h.Epc.TakeSnapshot() {
 		if ep.State != EPstateRunning {
 			continue
@@ -58,14 +70,21 @@ func (h *LookoutHandler) pollSSDStats() {
 			continue
 		}
 
+		devNisds[devPath] = append(devNisds[devPath], nisd.GetUUID().String())
+	}
+
+	for devPath, nisdUUIDs := range devNisds {
 		ncap, nuse, err := fetchNVMeCapUse(devPath)
 		if err != nil {
-			xlog.Warnf("ssd stats poll for %s (%s): %v",
-				nisd.GetUUID().String(), devPath, err)
+			xlog.Warnf("ssd stats poll for %s: %v", devPath, err)
 			continue
 		}
 
-		nisd.SetSSDStats(ncap, nuse)
+		sort.Strings(nisdUUIDs)
+		h.Epc.SetDeviceSSDStats(devPath, DeviceSSDStats{
+			Stats:     applications.SSDStats{NCap: ncap, NUse: nuse},
+			NisdUUIDs: nisdUUIDs,
+		})
 	}
 }
 

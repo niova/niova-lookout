@@ -18,6 +18,7 @@ import (
 	sd "github.com/00pauln00/niova-pumicedb/go/pkg/utils/servicediscovery"
 
 	"github.com/00pauln00/niova-lookout/pkg/monitor"
+	ph "github.com/00pauln00/niova-lookout/pkg/prometheusHandler"
 	"github.com/00pauln00/niova-lookout/pkg/xlog"
 )
 
@@ -212,6 +213,17 @@ func (h *CommHandler) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 				ep.App.Parse(labelMap, w, r)
 			}
 		}
+	}
+
+	// Emit the NVMe capacity/utilization gauges once per unique backing
+	// device, tagged with the NISD UUIDs currently sharing it, rather than
+	// duplicating the series per-NISD.
+	for devPath, entry := range h.Epc.DeviceSSDStatsSnapshot() {
+		labels := map[string]string{
+			"DEV_PATH":  devPath,
+			"NISD_UUID": strings.Join(entry.NisdUUIDs, ","),
+		}
+		fmt.Fprint(w, ph.GenericPromDataParser(entry.Stats, labels))
 	}
 }
 
