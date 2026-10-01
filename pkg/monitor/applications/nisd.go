@@ -363,10 +363,16 @@ func (n *Nisd) Parse(labels map[string]string, w http.ResponseWriter,
 	if condition := len(n.EPInfo.NISDRootEntry) == 0; !condition {
 		labels = n.LoadNISDLabelMap(labels)
 
-		out += ph.GenericPromDataParser(n.EPInfo.NiorqMgr[0], labels)
+		// These can be unpopulated while the NISD is (re)starting
+		if len(n.EPInfo.NiorqMgr) > 0 {
+			out += ph.GenericPromDataParser(n.EPInfo.NiorqMgr[0],
+				labels)
+		}
 		out += ph.GenericPromDataParser(n.EPInfo.NISDRootEntry[0],
 			labels)
-		out += ph.GenericPromDataParser(*n.EPInfo.SysInfo, labels)
+		if n.EPInfo.SysInfo != nil {
+			out += ph.GenericPromDataParser(*n.EPInfo.SysInfo, labels)
+		}
 
 		// Iterate and parse each NISDChunk if populated
 		for _, chunk := range n.EPInfo.NISDChunk {
