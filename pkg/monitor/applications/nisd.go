@@ -162,6 +162,9 @@ type McibInfo struct {
 	WriteCacheWaiters    uint64 `json:"write-cache-waiters" type:"gauge" metric:"nisd_chunk_mwc_waiters"`
 	WriteCacheMaxWaiters uint64 `json:"write-cache-max-waiters" type:"gauge" metric:"nisd_chunk_mwc_max_waiters"`
 	WriteCacheInserts    uint64 `json:"write-cache-inserts" type:"counter" metric:"nisd_chunk_mwc_insert"`
+	MimResident          uint64 `json:"mim-resident" type:"gauge" metric:"nisd_chunk_mim_resident"`
+	MimFetched           uint64 `json:"mim-fetched" type:"counter" metric:"nisd_chunk_mim_fetched"`
+	MimFetchWasted       uint64 `json:"mim-fetch-wasted" type:"counter" metric:"nisd_chunk_mim_fetch_wasted"`
 }
 
 // MergeInfo mirrors NISD's "merge-info" object -- replaces the old flat
