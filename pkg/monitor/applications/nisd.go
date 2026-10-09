@@ -38,6 +38,14 @@ type Nisd struct {
 	address    string // IP address of the NISD instance
 }
 
+// SSDStats holds the backing NVMe device's Identify-Namespace capacity
+// (ncap) and utilization (nuse), in logical blocks, as periodically polled
+// by pkg/monitor's ssd stats goroutine.
+type SSDStats struct {
+	NCap uint64 `type:"gauge" metric:"nisd_ssd_ncap_blocks"`
+	NUse uint64 `type:"gauge" metric:"nisd_ssd_nuse_blocks"`
+}
+
 type NiorqMgr struct {
 	UUID                  string    `json:"uuid"`
 	DevPath               string    `json:"dev-path"`
@@ -351,6 +359,15 @@ func (n *Nisd) GetAltName() string {
 		return ""
 	}
 	return n.EPInfo.NISDRootEntry[0].AltName
+}
+
+// GetDevPath returns the backing block device path reported by the NISD's
+// ctl-interface, or "" if not yet known.
+func (n *Nisd) GetDevPath() string {
+	if len(n.EPInfo.NiorqMgr) == 0 {
+		return ""
+	}
+	return n.EPInfo.NiorqMgr[0].DevPath
 }
 
 func (n *Nisd) Parse(labels map[string]string, w http.ResponseWriter,
