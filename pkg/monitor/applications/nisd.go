@@ -162,6 +162,9 @@ type McibInfo struct {
 	WriteCacheWaiters    uint64 `json:"write-cache-waiters" type:"gauge" metric:"nisd_chunk_mwc_waiters"`
 	WriteCacheMaxWaiters uint64 `json:"write-cache-max-waiters" type:"gauge" metric:"nisd_chunk_mwc_max_waiters"`
 	WriteCacheInserts    uint64 `json:"write-cache-inserts" type:"counter" metric:"nisd_chunk_mwc_insert"`
+	MimResident          uint64 `json:"mim-resident" type:"counter" metric:"nisd_chunk_mim_resident"`
+	MimFetched           uint64 `json:"mim-fetched" type:"counter" metric:"nisd_chunk_mim_fetched"`
+	MimFetchWasted       uint64 `json:"mim-fetch-wasted" type:"counter" metric:"nisd_chunk_mim_fetch_wasted"`
 }
 
 // MergeInfo mirrors NISD's "merge-info" object -- replaces the old flat
@@ -363,10 +366,16 @@ func (n *Nisd) Parse(labels map[string]string, w http.ResponseWriter,
 	if condition := len(n.EPInfo.NISDRootEntry) == 0; !condition {
 		labels = n.LoadNISDLabelMap(labels)
 
-		out += ph.GenericPromDataParser(n.EPInfo.NiorqMgr[0], labels)
+		// These can be unpopulated while the NISD is (re)starting
+		if len(n.EPInfo.NiorqMgr) > 0 {
+			out += ph.GenericPromDataParser(n.EPInfo.NiorqMgr[0],
+				labels)
+		}
 		out += ph.GenericPromDataParser(n.EPInfo.NISDRootEntry[0],
 			labels)
-		out += ph.GenericPromDataParser(*n.EPInfo.SysInfo, labels)
+		if n.EPInfo.SysInfo != nil {
+			out += ph.GenericPromDataParser(*n.EPInfo.SysInfo, labels)
+		}
 
 		// Iterate and parse each NISDChunk if populated
 		for _, chunk := range n.EPInfo.NISDChunk {
