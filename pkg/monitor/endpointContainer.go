@@ -17,6 +17,33 @@ type EPContainer struct {
 	epMap            map[uuid.UUID]*NcsiEP
 	mutex            sync.Mutex
 	HttpQuery        map[string](chan []byte)
+	ssdStatsMu       sync.RWMutex
+	deviceSSDStats   map[string]DeviceSSDStats
+}
+
+// SetDeviceSSDStats records the latest polled NVMe capacity/utilization for
+// a unique backing device, along with the NISD UUIDs currently reporting it
+// as their backing store. Safe for concurrent use with
+// DeviceSSDStatsSnapshot.
+func (epc *EPContainer) SetDeviceSSDStats(devPath string, entry DeviceSSDStats) {
+	epc.ssdStatsMu.Lock()
+	defer epc.ssdStatsMu.Unlock()
+	if epc.deviceSSDStats == nil {
+		epc.deviceSSDStats = make(map[string]DeviceSSDStats)
+	}
+	epc.deviceSSDStats[devPath] = entry
+}
+
+// DeviceSSDStatsSnapshot returns a copy of the current per-device NVMe
+// capacity/utilization cache, keyed by device path.
+func (epc *EPContainer) DeviceSSDStatsSnapshot() map[string]DeviceSSDStats {
+	epc.ssdStatsMu.RLock()
+	defer epc.ssdStatsMu.RUnlock()
+	snap := make(map[string]DeviceSSDStats, len(epc.deviceSSDStats))
+	for k, v := range epc.deviceSSDStats {
+		snap[k] = v
+	}
+	return snap
 }
 
 //XXX this looks sketchy
