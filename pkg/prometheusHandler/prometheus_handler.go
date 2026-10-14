@@ -18,8 +18,20 @@ type prometheusHistInfo struct {
 	totalObservation int
 }
 
+// formatValue renders a metric value; bools become 1/0 since Prometheus
+// samples must be numeric.
+func formatValue(v reflect.Value) string {
+	if v.Kind() == reflect.Bool {
+		if v.Bool() {
+			return "1"
+		}
+		return "0"
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func parseCounter(count reflect.Value) string {
-	return fmt.Sprintf("%v", count)
+	return formatValue(count)
 }
 
 func parseHistogram(histogram reflect.Value, histogramType reflect.Type) prometheusHistInfo {
@@ -42,7 +54,7 @@ func parseHistogram(histogram reflect.Value, histogramType reflect.Type) prometh
 }
 
 func parseGauge(gauge reflect.Value) string {
-	return fmt.Sprintf("%v", gauge)
+	return formatValue(gauge)
 }
 
 func makePromUntype(metric string, label string, value reflect.Value) string {
